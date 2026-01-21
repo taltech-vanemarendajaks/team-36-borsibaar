@@ -5,6 +5,11 @@ TEAM MEMBERS:
 
 DESCRIPTION:
 BRANCHES:
+main haru on protected
+vaja vähemalt 1 review, et mergeda
+
+feature harude nimetamise loogika
+feature/week-2-part-2-name
 
 REVIEWS:
 
