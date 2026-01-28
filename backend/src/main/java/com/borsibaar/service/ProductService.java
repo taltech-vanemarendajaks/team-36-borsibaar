@@ -76,23 +76,6 @@ public class ProductService {
                 cat.getName());
     }
 
-    private void createInitialInventory(Product product, Long organizationId) {
-        Inventory inventory = new Inventory(organizationId, product, BigDecimal.ZERO, product.getBasePrice());
-        Inventory savedInventory = inventoryRepository.save(inventory);
-
-        InventoryTransaction transaction = new InventoryTransaction();
-        transaction.setInventory(savedInventory);
-        transaction.setTransactionType("INITIAL");
-        transaction.setQuantityChange(BigDecimal.ZERO);
-        transaction.setQuantityBefore(BigDecimal.ZERO);
-        transaction.setQuantityAfter(BigDecimal.ZERO);
-        transaction.setPriceBefore(Optional.ofNullable(product.getBasePrice()).orElse(BigDecimal.ZERO));
-        transaction.setPriceAfter(Optional.ofNullable(product.getBasePrice()).orElse(BigDecimal.ZERO));
-        transaction.setNotes("Product created - initial inventory");
-        transaction.setCreatedAt(OffsetDateTime.now());
-        inventoryTransactionRepository.save(transaction);
-    }
-
     @Transactional(readOnly = true)
     public ProductResponseDto getById(Long id) {
         Product product = productRepository.findById(id)
@@ -125,5 +108,22 @@ public class ProductService {
         product.setActive(false);
         product.setUpdatedAt(OffsetDateTime.now());
         productRepository.save(product);
+    }
+
+    private void createInitialInventory(Product product, Long organizationId) {
+        Inventory inventory = new Inventory(organizationId, product, BigDecimal.ZERO, product.getBasePrice());
+        Inventory savedInventory = inventoryRepository.save(inventory);
+
+        InventoryTransaction transaction = new InventoryTransaction();
+        transaction.setInventory(savedInventory);
+        transaction.setTransactionType("INITIAL");
+        transaction.setQuantityChange(BigDecimal.ZERO);
+        transaction.setQuantityBefore(BigDecimal.ZERO);
+        transaction.setQuantityAfter(BigDecimal.ZERO);
+        transaction.setPriceBefore(Optional.ofNullable(product.getBasePrice()).orElse(BigDecimal.ZERO));
+        transaction.setPriceAfter(Optional.ofNullable(product.getBasePrice()).orElse(BigDecimal.ZERO));
+        transaction.setNotes("Product created - initial inventory");
+        transaction.setCreatedAt(OffsetDateTime.now());
+        inventoryTransactionRepository.save(transaction);
     }
 }
