@@ -17,7 +17,7 @@ public class ProductController {
 
     private final ProductService productService;
 
-    @PostMapping("/add")
+    @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public ProductResponseDto create(@RequestBody @Valid ProductRequestDto request) {
         User user = SecurityUtils.getCurrentUser();
