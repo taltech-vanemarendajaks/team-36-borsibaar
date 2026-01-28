@@ -17,7 +17,7 @@ public class SalesController {
 
     private final SalesService salesService;
 
-    @PostMapping("/process/sale")
+    @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public SaleResponseDto processSale(@RequestBody @Valid SaleRequestDto request) {
         User user = SecurityUtils.getCurrentUser();
