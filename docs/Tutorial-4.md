@@ -405,25 +405,38 @@ docker compose down
 
 ### 3.1 Tasuta domeeni registreerimine (noip.com)
 
-1. Mine [noip.com](https://www.noip.com) ja registreeru
-2. Vali "Create Hostname"
-3. Sisesta domeeninimi (nt `borsibaar.zapto.org`)
-4. Tüüp: **A Record**
-5. IP aadress: sinu serveri IP
+**Konto loomine:**
 
-Meie projektis on kasutusel `borsibaar.zapto.org` (näed seda `nginx/conf.d/borsibaar-https.conf` failis).
+1. Mine [noip.com](https://www.noip.com) ja registreeru (vajuta lehe ülaosas „Sign Up")
+2. Täida registreerimisvorm ja vajuta „Free Sign Up"
+3. Kinnita oma e-posti aadress
+
+**Hostname'i lisamine (pärast sisselogimist):**
+
+4. Mine dashboardis: **Managed DNS → DNS Records**
+5. Vajuta rohelist nuppu **Create Hostname**
+6. Täida väljad:
+   - **Hostname**: soovitud nimi (nt `klassiraha`)
+   - **Domain**: vali rippmenüüst domeen (nt `.zapto.org`)
+   - **Type**: jäta **A** (vaikimisi)
+   - **IPv4 Address**: sisesta sinu **serveri IP aadress** (193.40.157.110)
+   - Märgi linnuke **Enable Dynamic DNS**
+7. Vajuta **Create with DDNS Key**
+
+
+Meie projektis on kasutusel `klassiraha.zapto.org` (näed seda `nginx/conf.d/borsibaar-https.conf` failis).
 
 ### 3.2 Kontrolli, et domeen töötab
 
 ```bash
 # Serverist
-ping borsibaar.zapto.org
+ping klassiraha.zapto.org
 
 # Või DNS kontrolli
-nslookup borsibaar.zapto.org
+nslookup klassiraha.zapto.org
 ```
 
-Nüüd peaks rakendus olema ligipääsetav aadressil: `http://sinudomeen.zapto.org/`
+Nüüd peaks rakendus olema ligipääsetav aadressil: `http://klassiraha.zapto.org/`
 
 ---
 
@@ -433,7 +446,36 @@ CI/CD automatiseerib protsessi: kood pushitakse → ehitatakse → deployitakse 
 
 Meie workflow asub: `.github/workflows/docker-image.yml`
 
-### 4.1 GitHub Secrets seadistamine
+### 4.1 SSH võtme genereerimine GitHub Actions'ile
+
+GitHub Actions vajab SSH võtit, et serverisse automaatselt sisse logida. Loome selleks eraldi võtmepaari.
+
+> **Kõik järgmised käsud käivitatakse sinu kohalikul arvutis** – Linux/Mac terminalis otse, Windows kasutajatel WSL-i terminalis (nt Ubuntu).
+
+```bash
+# 1. Genereeri uus võtmepaar sinu arvutisse (~/.ssh/ kausta)
+#    -C "github-actions" on lihtsalt märgis, et tead hiljem mis võti see on
+#    -f määrab faili nime (tekib github_actions ja github_actions.pub)
+ssh-keygen -t ed25519 -C "github-actions" -f ~/.ssh/github_actions
+```
+
+```bash
+# 2. Saada avalik võti (github_actions.pub) serverisse
+#    Käsk käivitatakse kohalikult, aga lisab võtme serveris ~/.ssh/authorized_keys faili
+#    Autentimine toimub sinu olemasoleva SSH võtmega
+ssh-copy-id -i ~/.ssh/github_actions.pub ubuntu@193.40.157.110
+```
+
+```bash
+# 3. Kuva privaatvõti ekraanil
+#    Kopeeri kogu väljund (sh "-----BEGIN OPENSSH PRIVATE KEY-----" read)
+#    ja lisa see GitHub Secret'isse SSH_PRIVATE_KEY väärtusena
+cat ~/.ssh/github_actions
+```
+
+> **Miks eraldi võti?** Kui GitHub Secrets peaks lekkima, saad selle ühe võtme serverist lihtsalt eemaldada (`~/.ssh/authorized_keys` failist), ilma oma isiklikku SSH võtit puutumata.
+
+### 4.2 GitHub Secrets seadistamine
 
 Mine GitHub repos: **Settings → Secrets and variables → Actions → New repository secret**
 
@@ -441,23 +483,10 @@ Lisa järgmised saladused:
 
 | Secret nimi | Väärtus |
 |---|---|
-| `SSH_USER` | Sinu SSH kasutajanimi serveris |
-| `SSH_PRIVATE_KEY` | Sinu SSH privaatvõti (sisu `~/.ssh/id_rsa` failist) |
-| `SERVER_IP` | Serveri IP aadress |
+| `SSH_USER` | `ubuntu` |
+| `SSH_PRIVATE_KEY` | Eelmises sammus genereeritud privaatvõti (`cat ~/.ssh/github_actions` väljund) |
+| `SERVER_IP` | `193.40.157.110` |
 | `ENV_PRODUCTION_FILE` | Kogu `.env` faili sisu (kõik muutujad) |
-
-**SSH võtme genereerimine (kui sul veel pole):**
-
-```bash
-# Genereeri võtmepaar
-ssh-keygen -t ed25519 -C "github-actions"
-
-# Lisa avalik võti serverisse (et GitHub Actions saaks sisse logida)
-ssh-copy-id -i ~/.ssh/id_ed25519.pub kasutaja@SERVER_IP
-
-# Kopeeri privaatvõti GitHub Secret'isse
-cat ~/.ssh/id_ed25519
-```
 
 ### 4.2 Kuidas workflow töötab
 
@@ -482,25 +511,140 @@ Meie `.github/workflows/docker-image.yml` teeb järgmist, kui kood pushitakse `m
 
 ### 4.3 Workflow käivitamine
 
+**Variant A – automaatselt** (kood pushitakse `main` harusse):
+
 ```bash
-# Pushige kood main harusse
 git push origin main
 ```
 
-Mine GitHub → Actions tab → näed workflow jooksmas.
+**Variant B – käsitsi GitHubis:**
+
+1. Mine GitHub repos → **Actions** tab
+2. Vali vasakult **Build and Deploy**
+3. Vajuta paremal **Run workflow** → **Run workflow**
+
+Mõlemal juhul näed Actions tab-is workflow jooksmas.
+
+> **Levinud viga: konteinerite nimekonfliktt**
+>
+> Kui oled eelnevalt serveris konteinereid käsitsi käivitanud (nt samm 2 harjutuse käigus), võib CI/CD deploy ebaõnnestuda sellise veaga:
+> ```
+> Error: The container name "/borsibaar-db" is already in use
+> ```
+> **Miks?** CI/CD `docker compose down` kustutab ainult konteinerid, mis käivitati samast kaustast sama compose failiga. Käsitsi loodud konteinerid jäävad alles.
+>
+> **Lahendus:** Logi serverisse ja eemalda vanad konteinerid käsitsi:
+> ```bash
+> ssh ubuntu@193.40.157.110
+> docker rm -f borsibaar-db borsibaar-backend borsibaar-frontend borsibaar-nginx
+> ```
+> Seejärel käivita workflow uuesti.
 
 ### 4.4 Bonus: Docker Registry kasutamine (soovituslik)
 
-Praegune lähenemine ehitab image'id serveris. Parem lähenemine:
-1. Ehita image CI runneris
-2. Push image registrisse (Docker Hub, GHCR)
-3. Server ainult **pulb** image'i (ei ehita)
+**Praegune lähenemine (meie workflow):**
+```
+Sinu arvuti → GitHub → CI runner ehitab koodi → saadab failid serverisse → SERVER EHITAB Docker image'id
+```
+Server peab ise image'id ehitama – see on aeglane ja ressursimahukas.
 
-See võimaldab lihtsat rollback'i:
+**Registry lähenemine:**
+```
+Sinu arvuti → GitHub → CI runner ehitab Docker image'id → laeb üles registrisse → SERVER TÕMBAB valmis image'id alla
+```
+Server ei pea midagi ehitama – lihtsalt tõmbab valmis image alla, nagu `apt install`.
+
+**Seadistamine Docker Hub-iga:**
+
+**1. Lisa GitHub Secrets:**
+
+| Secret nimi | Väärtus |
+|---|---|
+| `DOCKERHUB_USERNAME` | Sinu Docker Hub kasutajanimi |
+| `DOCKERHUB_TOKEN` | Docker Hub Access Token (juhend allpool) |
+
+**Docker Hub Access Token loomine:**
+
+1. Mine [hub.docker.com](https://hub.docker.com) → **Account Settings → Personal access tokens**
+2. Vajuta **Generate new token**
+3. **Description**: `github-actions`
+4. **Access permissions**: `Read & Write` (Delete pole vajalik)
+5. Vajuta **Generate**
+6. **Kopeeri token kohe** – seda näidatakse ainult üks kord
+
+> Olemasolevaid auto-genereeritud tokeneid (Docker Desktop poolt loodud) ei saa kasutada, kuna nende salasõna pole enam nähtav.
+
+**2. Uuenda workflow faili** (`.github/workflows/docker-image.yml`):
+
+```yaml
+- name: Log in to Docker Hub
+  uses: docker/login-action@v3
+  with:
+    username: ${{ secrets.DOCKERHUB_USERNAME }}
+    password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+- name: Build and push backend image
+  uses: docker/build-push-action@v5
+  with:
+    context: ./backend
+    push: true
+    tags: ${{ secrets.DOCKERHUB_USERNAME }}/borsibaar-backend:latest
+
+- name: Build and push frontend image
+  uses: docker/build-push-action@v5
+  with:
+    context: .
+    file: ./frontend/Dockerfile
+    push: true
+    tags: ${{ secrets.DOCKERHUB_USERNAME }}/borsibaar-frontend:latest
+    build-args: |
+      NEXT_PUBLIC_BACKEND_URL=http://klassiraha.zapto.org
+```
+
+**3. Uuenda `docker-compose.prod.yaml`** – asenda `build:` plokid `image:` viidetega:
+
+```yaml
+# ENNE (ehitab serveris):
+backend:
+  build:
+    context: backend
+    dockerfile: Dockerfile
+
+# PÄRAST (tõmbab valmis image registrist):
+backend:
+  image: ${DOCKERHUB_USERNAME}/borsibaar-backend:latest
+```
+
+Sama frontendi jaoks:
+
+```yaml
+# ENNE:
+frontend:
+  build:
+    context: .
+    dockerfile: frontend/Dockerfile
+    args:
+      NEXT_PUBLIC_BACKEND_URL: ${NEXT_PUBLIC_BACKEND_URL}
+
+# PÄRAST:
+frontend:
+  image: ${DOCKERHUB_USERNAME}/borsibaar-frontend:latest
+```
+
+> `DOCKERHUB_USERNAME` loetakse `.env` failist, mille CI/CD kirjutab serverisse automaatselt.
+
+**4. Deploy** – CI/CD teeb seda automaatselt. Vajadusel saab serveris ka käsitsi uuendada:
+
+```bash
+docker compose pull   # tõmba uued image'id Docker Hub'ist
+docker compose up -d  # käivita uuesti uute image'idega
+```
+
+**Rollback** (vana versiooni juurde tagasi minemine):
 
 ```bash
 # Tagasi minemiseks vana versiooni juurde
-docker pull sinunimi/borsibaar-backend:v1.0.2
+docker pull janx4u/borsibaar-backend:v1.0.2
 docker compose up -d
 ```
 
@@ -516,22 +660,43 @@ HTTPS krüpteerib liikluse serveri ja brauseri vahel. Let's Encrypt annab tasuta
 sudo apt-get install -y certbot
 ```
 
-### 5.2 Sertifikaadi hankimine
+### 5.2 Kontrolli NGINX konfiguratsiooni
+
+Enne sertifikaadi hankimist veendu, et `nginx/conf.d/borsibaar-https.conf` failis on `server_name` seatud sinu domeenile mõlemas serveriplokis:
+
+```nginx
+# HTTP plokk
+server {
+    listen 80;
+    server_name klassiraha.zapto.org;  # <-- sinu domeen
+    ...
+}
+
+# HTTPS plokk
+server {
+    listen 443 ssl http2;
+    server_name klassiraha.zapto.org;  # <-- sinu domeen
+    ...
+}
+```
+
+### 5.3 Sertifikaadi hankimine (certbot)
 
 **Oluline:** NGINX peab olema maha võetud enne sertifikaadi hankimist (port 80 peab vaba olema), VÕI kasuta Certboti NGINX pluginat.
 
 **Variant A – Standalone (lihtsaim):**
 
 ```bash
-# Peata NGINX ajutiselt
+# Peata NGINX ajutiselt (kui rakendus juba töötab)
+# Kui konteinerid ei tööta, jäta see samm vahele – port 80 on juba vaba
 docker compose stop nginx
 
 # Hangi sertifikaat
-sudo certbot certonly --standalone -d sinudomeen.zapto.org
+sudo certbot certonly --standalone -d klassiraha.zapto.org
 
 # Sertifikaadid on nüüd:
-# /etc/letsencrypt/live/sinudomeen.zapto.org/fullchain.pem
-# /etc/letsencrypt/live/sinudomeen.zapto.org/privkey.pem
+# /etc/letsencrypt/live/klassiraha.zapto.org/fullchain.pem
+# /etc/letsencrypt/live/klassiraha.zapto.org/privkey.pem
 ```
 
 **Variant B – Webroot (NGINX töötab edasi):**
@@ -539,18 +704,18 @@ sudo certbot certonly --standalone -d sinudomeen.zapto.org
 ```bash
 sudo certbot certonly --webroot \
   -w /var/www/certbot \
-  -d sinudomeen.zapto.org
+  -d klassiraha.zapto.org
 ```
 
-### 5.3 SSL sertifikaatide kasutamine Docker Compose'is
+### 5.4 SSL sertifikaatide kasutamine Docker Compose'is
 
-Kopeeri sertifikaadid projekti kausta:
+Kopeeri sertifikaadid projekti kausta (käivita serveris):
 
 ```bash
-mkdir -p /opt/sinuNimi/borsibaar/nginx/ssl
-sudo cp /etc/letsencrypt/live/sinudomeen.zapto.org/fullchain.pem /opt/sinuNimi/borsibaar/nginx/ssl/
-sudo cp /etc/letsencrypt/live/sinudomeen.zapto.org/privkey.pem /opt/sinuNimi/borsibaar/nginx/ssl/
-sudo cp /etc/letsencrypt/live/sinudomeen.zapto.org/chain.pem /opt/sinuNimi/borsibaar/nginx/ssl/
+mkdir -p ~/studentbar-pos-deploy/nginx/ssl
+sudo cp /etc/letsencrypt/live/klassiraha.zapto.org/fullchain.pem ~/studentbar-pos-deploy/nginx/ssl/
+sudo cp /etc/letsencrypt/live/klassiraha.zapto.org/privkey.pem ~/studentbar-pos-deploy/nginx/ssl/
+sudo cp /etc/letsencrypt/live/klassiraha.zapto.org/chain.pem ~/studentbar-pos-deploy/nginx/ssl/
 ```
 
 Meie `docker-compose.prod.yaml` mountib need sertifikaadid NGINX konteinerisse:
@@ -568,9 +733,16 @@ ssl_certificate /etc/nginx/ssl/fullchain.pem;
 ssl_certificate_key /etc/nginx/ssl/privkey.pem;
 ```
 
-Lisa docker-compose'i NGINX konfiguratsioonile port 443 ja HTTPS server blokk (vaata `nginx/conf.d/borsibaar-https.conf` täielikku näidet).
+> Meie projektis on `docker-compose.prod.yaml` ja `nginx/conf.d/borsibaar-https.conf` juba seadistatud – port 443 ja HTTPS server blokk on olemas. Veendu ainult, et `server_name` vastab sinu domeenile (`klassiraha.zapto.org`).
 
-### 5.4 Sertifikaadi uuendamine
+Kui CI/CD on edukalt deploynud, kontrolli toimimist brauseris: `https://klassiraha.zapto.org/`
+
+Korrektselt toimiva HTTPS-i tunnused:
+- Brauseri aadressiribal on tabaluku ikoon
+- Ühendus on krüpteeritud (pole "Not secure" hoiatust)
+- HTTP aadress (`http://klassiraha.zapto.org`) suunab automaatselt HTTPS-ile
+
+### 5.5 Sertifikaadi uuendamine
 
 Let's Encrypt sertifikaadid kehtivad 90 päeva. Automaatne uuendamine:
 
@@ -592,9 +764,9 @@ sudo crontab -e
 |---|---|
 | 1. Serveri seadistamine | SSH ligipääs, Docker ja NGINX serveris |
 | 2. Manuaalne deploy | Rakendus töötab `http://SERVER_IP/` |
-| 3. Domeen | Rakendus töötab `http://sinudomeen.zapto.org/` |
+| 3. Domeen | Rakendus töötab `http://klassiraha.zapto.org/` |
 | 4. CI/CD | Iga push `main` harusse deployib automaatselt |
-| 5. HTTPS | Rakendus töötab `https://sinudomeen.zapto.org/` |
+| 5. HTTPS | Rakendus töötab `https://klassiraha.zapto.org/` |
 
 ---
 
