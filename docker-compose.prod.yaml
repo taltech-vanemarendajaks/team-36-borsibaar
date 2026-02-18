@@ -16,9 +16,7 @@ services:
       - borsibaar-network
 
   backend:
-    build:
-      context: backend
-      dockerfile: Dockerfile
+    image: ${DOCKERHUB_USERNAME}/borsibaar-backend:latest
     container_name: borsibaar-backend
     expose:
       - "8080"
@@ -36,12 +34,7 @@ services:
       - borsibaar-network
 
   frontend:
-    build:
-      context: .
-      dockerfile: frontend/Dockerfile
-      args:
-        # Build-time variable for client-side OAuth redirects (now through nginx)
-        NEXT_PUBLIC_BACKEND_URL: ${NEXT_PUBLIC_BACKEND_URL}
+    image: ${DOCKERHUB_USERNAME}/borsibaar-frontend:latest
     container_name: borsibaar-frontend
     expose:
       - "3000"
