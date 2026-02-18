@@ -16,6 +16,7 @@ jobs:
       DEPLOY_PATH: ~/studentbar-pos-deploy
       ENV_PRODUCTION_FILE: ${{ secrets.ENV_PRODUCTION_FILE }}
       DOCKER_COMPOSE_FILE: docker-compose.prod.yaml
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
 
     steps:
       - name: Checkout code
@@ -31,18 +32,28 @@ jobs:
         working-directory: backend
         run: ./mvnw clean package -DskipTests
 
-      - name: Set up Node 20
-        uses: actions/setup-node@v4
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
         with:
-          node-version: '20'
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm ci
+      - name: Build and push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/borsibaar-backend:latest
 
-      - name: Build frontend
-        working-directory: frontend
-        run: npm run build
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./frontend/Dockerfile
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/borsibaar-frontend:latest
+          build-args: |
+            NEXT_PUBLIC_BACKEND_URL=http://klassiraha.zapto.org
 
       - name: Set up SSH key
         run: |
@@ -51,32 +62,14 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan "$SERVER_IP" >> ~/.ssh/known_hosts
 
-      - name: Create .env.production from secret
+      - name: Copy deployment files to server
         run: |
-          printf '%s\n' "$ENV_PRODUCTION_FILE" > .env.production
-
-      - name: Create deployment package
-        run: |
-          tar czf deployment.tar.gz \
-            backend/target/*.jar \
-            frontend/ \
-            nginx/ \
-            "$DOCKER_COMPOSE_FILE" \
-            backend/Dockerfile \
-            frontend/Dockerfile \
-            .env.production
-
-      - name: Install sshpass and openssh-client
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y sshpass openssh-client
-
-      - name: Copy deployment package to server
-        run: |
-          scp -i ~/.ssh/id_rsa \
-            -o StrictHostKeyChecking=yes \
-            deployment.tar.gz \
-            "$SSH_USER@$SERVER_IP:/tmp/"
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SERVER_IP" "mkdir -p $DEPLOY_PATH"
+          scp -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes \
+            "$DOCKER_COMPOSE_FILE" "$SSH_USER@$SERVER_IP:$DEPLOY_PATH/"
+          scp -i ~/.ssh/id_rsa -r -o StrictHostKeyChecking=yes \
+            nginx/ "$SSH_USER@$SERVER_IP:$DEPLOY_PATH/"
 
       - name: Deploy on server
         run: |
@@ -88,37 +81,19 @@ jobs:
           mkdir -p $DEPLOY_PATH
           cd $DEPLOY_PATH
 
-          # Extract deployment package
-          tar xzf /tmp/deployment.tar.gz
-          rm /tmp/deployment.tar.gz
+          # Write .env file from secret
+          printf '%s\n' "$ENV_PRODUCTION_FILE" > .env
+          echo "DOCKERHUB_USERNAME=$DOCKERHUB_USERNAME" >> .env
 
-          # Check if docker-compose file exists
-          if [ ! -f "$DOCKER_COMPOSE_FILE" ]; then
-            echo "ERROR: $DOCKER_COMPOSE_FILE not found!"
-            exit 1
-          fi
-
-          # Copy environment file if exists
-          if [ -f .env.production ]; then
-            cp .env.production .env
-          fi
-
-          # Clean/repair builder cache and avoid BuildKit flakiness
-          # sudo systemctl restart docker
-          # docker buildx prune -af || true
-          # docker builder prune -af || true
-          # docker image prune -af || true
+          # Pull latest images from Docker Hub
+          docker compose -f $DOCKER_COMPOSE_FILE pull
 
           # Stop existing containers
-          docker compose -f "$DOCKER_COMPOSE_FILE" down
+          docker compose -f $DOCKER_COMPOSE_FILE down
 
-          # Rebuild and start containers
-          docker compose -f "$DOCKER_COMPOSE_FILE" build --no-cache
-          docker compose -f "$DOCKER_COMPOSE_FILE" up -d
-
-          # Clean up old images
-          # docker image prune -f
+          # Start with new images
+          docker compose -f $DOCKER_COMPOSE_FILE up -d
 
           echo "Deployment complete!"
-          docker compose -f "$DOCKER_COMPOSE_FILE" ps
+          docker compose -f $DOCKER_COMPOSE_FILE ps
           EOF
