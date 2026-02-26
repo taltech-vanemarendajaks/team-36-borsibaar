@@ -1007,14 +1007,16 @@ Kerib alla **Infrastructure requirements** sektsiooni:
 
 **Task roles — Conditional:**
 
+> **⚠️ NB! Ole siin väga tähelepanelik!** Need kaks rolli on erinevad ja peavad olema õigetes kohtades:
+> - **Task role** - annab konteinerile õigused kasutada AWS teenuseid (nt S3, DynamoDB)
+> - **Task execution role** - annab ECS-ile õigused tõmmata image ECR-ist ja lugeda Secrets Manager/Parameter Store väärtusi
+>
+> Kui need on vahetuses, siis Task ei käivitu!
+
 | Väli | Väärtus |
 |---|---|
 | **Task role** | `CustomEcsTaskRole` |
 | **Task execution role** | `CustomEcsTaskExecutionRole` |
-
-> **Selgitus:**
-> - **Task role** - annab konteinerile õigused kasutada AWS teenuseid (nt S3, DynamoDB)
-> - **Task execution role** - annab ECS-ile õigused tõmmata image ECR-ist ja lugeda Secrets Manager/Parameter Store väärtusi
 
 ### 11.7 Container seadistused
 
@@ -1058,9 +1060,11 @@ Kerib alla **Environment variables** sektsiooni ja lisa järgmised muutujad:
 |---|---|
 | **Key** | `WORDPRESS_DB_USER` |
 | **Value type** | **ValueFrom** |
-| **Value** | Kleebi RDS Secret ARN (Samm 6.5) + lisa lõppu `::username::` |
+| **Value** | Kleebi RDS Secret ARN (Samm 6.5) + lisa lõppu `:username::` |
 
-> **Näide:** `arn:aws:secretsmanager:eu-north-1:187833180667:secret:rds!db-bca282cb-0735-4624-a499-3bcb96ae9cf4-Gf1hmh::username::`
+> **Näide:** `arn:aws:secretsmanager:eu-north-1:187833180667:secret:rds!db-bca282cb-0735-4624-a499-3bcb96ae9cf4-Gf1hmh:username::`
+>
+> **⚠️ NB!** Õige formaat on `:username::` (alguses **üks koolon**, lõpus **kaks koolonit**)
 
 **4. WORDPRESS_DB_PASSWORD** (Secrets Manager)
 
@@ -1068,9 +1072,11 @@ Kerib alla **Environment variables** sektsiooni ja lisa järgmised muutujad:
 |---|---|
 | **Key** | `WORDPRESS_DB_PASSWORD` |
 | **Value type** | **ValueFrom** |
-| **Value** | Kleebi RDS Secret ARN (Samm 6.5) + lisa lõppu `::password::` |
+| **Value** | Kleebi RDS Secret ARN (Samm 6.5) + lisa lõppu `:password::` |
 
-> **Näide:** `arn:aws:secretsmanager:eu-north-1:187833180667:secret:rds!db-bca282cb-0735-4624-a499-3bcb96ae9cf4-Gf1hmh::password::`
+> **Näide:** `arn:aws:secretsmanager:eu-north-1:187833180667:secret:rds!db-bca282cb-0735-4624-a499-3bcb96ae9cf4-Gf1hmh:password::`
+>
+> **⚠️ NB!** Õige formaat on `:password::` (alguses **üks koolon**, lõpus **kaks koolonit**)
 
 ### 11.9 Task definition loomine
 
@@ -1104,7 +1110,13 @@ Täida järgmised väljad:
 | Väli | Väärtus |
 |---|---|
 | **Cluster name** | `tiim-36-cluster-rain` |
-| **Infrastructure** | **AWS Fargate (serverless)** |
+| **Infrastructure** | **Fargate only** |
+
+**Tags — Optional**: Lisa tag
+
+| Key | Value |
+|---|---|
+| **Name** | `tiim-36-cluster-rain` |
 
 Jäta muud seaded vaikimisi.
 
@@ -1135,21 +1147,19 @@ ECS service:
 2. Ava vahekaart **Services**
 3. Vajuta **Create**
 
-### 13.3 Environment
+### 13.3 Service details
+
+| Väli | Väärtus |
+|---|---|
+| **Task definition family** | Vali **tiim-36-wordpress-task-rain** (loodud Sammus 11) |
+| **Service name** | `tiim-36-service-rain` |
+
+### 13.4 Environment
 
 | Väli | Väärtus |
 |---|---|
 | **Compute options** | **Launch type** |
 | **Launch type** | **FARGATE** |
-
-### 13.4 Deployment configuration
-
-| Väli | Väärtus |
-|---|---|
-| **Application type** | **Service** |
-| **Task definition** | Vali **tiim-36-wordpress-task-rain** (viimane versioon) |
-| **Service name** | `tiim-36-service-rain` |
-| **Desired tasks** | **1** |
 
 ### 13.5 Networking
 
@@ -1158,30 +1168,51 @@ Ava **Networking** sektsioon:
 | Väli | Väärtus |
 |---|---|
 | **VPC** | `vpc-02fb02f6b35b49a55 (NaVa)` |
-| **Subnets** | Vali **Private subnets** (mitte Public!) |
-| **Security group** | Vali **Use an existing security group** → `tiim-36-alb-sg-rain` |
+| **Subnets** | Kliki **Clear current selection**, seejärel vali **Private subnets** (mitte Public!) |
+| **Security group** | Eemalda **default** (kliki **X**), seejärel vali **Choose an existing security group** → `tiim-36-alb-sg-rain` |
 | **Public IP** | **TURNED OFF** (disabled) |
 
 > **Oluline:** Konteinerid peavad olema private subnet'ides, kuna need saavad liikluse ALB kaudu, mitte otse internetist.
 
+**Private Subnets näited:**
+
+| Subnet ID | Nimi | AZ | CIDR |
+|---|---|---|---|
+| `subnet-0bdfc835013848e8d` | Private Subnet AZ A | eu-north-1a | 10.0.48.0/20 |
+| `subnet-0d9ece4706152d816` | Private Subnet AZ B | eu-north-1b | 10.0.64.0/20 |
+| `subnet-06cf55ea79ac8da5e` | Private Subnet AZ C | eu-north-1c | 10.0.80.0/20 |
+
+> Vali vähemalt 2 Private subnet'i (võid valida kõik 3).
+
 ### 13.6 Load balancing
 
-Ava **Load balancing** sektsioon:
+Ava **Load balancing** sektsioon ja luba load balancing:
+
+1. **Enable load balancing** - märgi linnuke (või lülita sisse)
 
 | Väli | Väärtus |
 |---|---|
-| **Load balancer type** | **Application Load Balancer** |
-| **Load balancer** | Vali **Use an existing load balancer** → `tiim-36-alb-rain` |
+| **Application Load Balancer** | Vali **Use an existing load balancer** |
+| **Load balancer** | `tiim-36-alb-rain` |
 | **Listener** | **Use an existing listener** → **80:HTTP** |
-| **Target group** | Vali **Use an existing target group** → `tiim-36-tg-rain` |
+| **Target group** | Vali **Use an existing target group** |
+| **Target group name** | `tiim-36-tg-rain` |
 
-### 13.7 Service loomine
+### 13.7 Tags (valikuline)
+
+**Tags — Optional**: Lisa tag
+
+| Key | Value |
+|---|---|
+| **Name** | `tiim-36-service-rain` |
+
+### 13.8 Service loomine
 
 1. Kerib alla lõpuni
 2. Vaata üle konfiguratsioon
 3. Vajuta **Create**
 
-### 13.8 Service käivitamise jälgimine
+### 13.9 Service käivitamise jälgimine
 
 1. Kliki loodud service'il **tiim-36-service-rain**
 2. Ava vahekaart **Tasks**
@@ -1190,7 +1221,7 @@ Ava **Load balancing** sektsioon:
 
 See võib võtta **2-5 minutit**.
 
-### 13.9 Health check verifitseerimine
+### 13.10 Health check verifitseerimine
 
 1. Mine **EC2** → **Target Groups** → kliki `tiim-36-tg-rain`
 2. Ava vahekaart **Targets**
@@ -1208,9 +1239,19 @@ Nüüd pääseme lõpuks WordPress'i kätte ja seadistame selle.
 
 ### 14.1 WordPress'i avamine
 
+**ALB DNS nime leidmine:**
+
+1. Mine **EC2** teenusesse
+2. Vasakpoolses menüüs, jaotises **Load Balancing**, vali **Load Balancers**
+3. Kliki oma load balancer'il (`tiim-36-alb-rain`)
+4. Leia **DNS name** väli (näiteks: `tiim-36-alb-rain-1925967372.eu-north-1.elb.amazonaws.com`)
+5. Kopeeri see aadress
+
+**WordPress'i avamine brauseris:**
+
 1. Ava brauser
-2. Sisesta ALB DNS name (kopeeritud sammust 10.9)
-   - Näiteks: `http://tiim-36-alb-rain-1234567890.eu-north-1.elb.amazonaws.com`
+2. Sisesta ALB DNS name koos `http://` prefiksiga
+   - Näiteks: `http://tiim-36-alb-rain-1925967372.eu-north-1.elb.amazonaws.com`
 3. Vajuta Enter
 
 Peaksid nägema WordPress'i installatsiooni lehte!
@@ -1251,21 +1292,10 @@ WordPress on edukalt ühendatud RDS MySQL andmebaasiga, kui:
 - Saad sisse logida
 - Näed admin dashboardi
 
-### 14.6 Esimese postituse loomine
-
-1. Vasakpoolses menüüs vali **Posts** → **Add New**
-2. Sisesta pealkiri: "Hello from AWS Fargate!"
-3. Kirjuta sisu: "This WordPress site runs on serverless infrastructure: ECS Fargate + RDS MySQL + ALB"
-4. Vajuta **Publish** kaks korda
-
-### 14.7 Lehe vaatamine
-
-1. Paremal üleval vajuta **Visit Site**
-2. Peaksid nägema oma WordPress'i avalehte koos postitusega!
+---
 
 **Palju õnne!** WordPress töötab AWS serverless arhitektuuril.
 
----
 
 ## Kokkuvõte
 [↑ Tagasi sisukorda](#sisukord)
